@@ -1,13 +1,16 @@
 """Event-time tumbling windows with a watermark for late data.
 
-Each window is emitted exactly once, when the watermark (max event time seen
-minus the allowed lateness) passes the window end. Events that arrive for a
-window that has already been emitted are counted as late and dropped.
+Each window is emitted exactly once, when the watermark passes the window end.
+Like Flink, the watermark is tracked per Kafka partition and the overall
+watermark is the *minimum* across partitions (minus the allowed lateness), so a
+partition that is read ahead of the others cannot make their events "late".
+Events that arrive for a window that has already been emitted are counted as
+late and dropped.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set
 
 from streaming.events import Event
 
@@ -50,7 +53,8 @@ class TumblingWindowAggregator:
         self.window = timedelta(seconds=window_seconds)
         self.lateness = timedelta(seconds=allowed_lateness_seconds)
         self._open: Dict[datetime, WindowStats] = {}
-        self._max_event_time: Optional[datetime] = None
+        self._max_by_partition: Dict[int, datetime] = {}
+        self._partitions: Optional[Set[int]] = None
         self._emitted_until: Optional[datetime] = None
         self.late_events = 0
 
@@ -58,14 +62,26 @@ class TumblingWindowAggregator:
         offset = (ts - EPOCH) // self.window
         return EPOCH + offset * self.window
 
+    def set_partitions(self, partitions: Iterable[int]) -> None:
+        """Declare the partitions this consumer owns (call on rebalance).
+
+        Until every owned partition has delivered at least one event the
+        watermark stays undefined, so no window is closed prematurely.
+        """
+        self._partitions = set(partitions)
+        for p in list(self._max_by_partition):
+            if p not in self._partitions:
+                del self._max_by_partition[p]
+
     @property
     def watermark(self) -> Optional[datetime]:
-        if self._max_event_time is None:
+        expected = self._partitions if self._partitions is not None else self._max_by_partition
+        if not expected or any(p not in self._max_by_partition for p in expected):
             return None
-        return self._max_event_time - self.lateness
+        return min(self._max_by_partition[p] for p in expected) - self.lateness
 
-    def add(self, event: Event) -> bool:
-        """Add an event. Returns False if it was dropped as late."""
+    def add(self, event: Event, partition: int = 0) -> bool:
+        """Add an event read from `partition`. Returns False if it was dropped as late."""
         start = self.window_start(event.event_time)
         if self._emitted_until is not None and start < self._emitted_until:
             self.late_events += 1
@@ -76,8 +92,9 @@ class TumblingWindowAggregator:
             stats = self._open[start] = WindowStats(start, start + self.window)
         stats.add(event)
 
-        if self._max_event_time is None or event.event_time > self._max_event_time:
-            self._max_event_time = event.event_time
+        current = self._max_by_partition.get(partition)
+        if current is None or event.event_time > current:
+            self._max_by_partition[partition] = event.event_time
         return True
 
     def pop_closed(self) -> List[WindowStats]:

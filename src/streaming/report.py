@@ -22,10 +22,14 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--limit", type=int, default=10)
     p.add_argument("--min-windows", type=int, default=1)
+    p.add_argument("--min-events", type=int, default=0, help="fail if fewer events were aggregated")
     a = p.parse_args()
 
     with psycopg.connect(Settings().postgres_dsn) as conn:
-        total = conn.execute("SELECT count(*) FROM window_metrics").fetchone()[0]
+        total, events = conn.execute(
+            "SELECT count(*), coalesce(sum(page_views + add_to_carts + purchases), 0)"
+            " FROM window_metrics"
+        ).fetchone()
         rows = conn.execute(QUERY, (a.limit,)).fetchall()
 
     header = (
@@ -39,9 +43,11 @@ def main() -> None:
             f"{start:%Y-%m-%d %H:%M}    {views:>7}{carts:>7}{orders:>8}"
             f"{revenue:>11.2f}{users:>7}{conv:>8.2%}"
         )
-    print(f"\n{total} windows stored")
+    print(f"\n{total} windows stored, {events} events aggregated")
     if total < a.min_windows:
         sys.exit(f"Expected at least {a.min_windows} windows, found {total}")
+    if events < a.min_events:
+        sys.exit(f"Expected at least {a.min_events} aggregated events, found {events}")
 
 
 if __name__ == "__main__":

@@ -71,8 +71,12 @@ class WindowedConsumer:
                 if exc.args[0].code() != KafkaError._NO_OFFSET:
                     raise
 
+    def _on_assign(self, consumer, partitions) -> None:
+        self.aggregator.set_partitions(p.partition for p in partitions)
+        log.info("Assigned partitions %s", sorted(p.partition for p in partitions))
+
     def run(self, idle_timeout: Optional[float] = None, max_messages: Optional[int] = None) -> dict:
-        self.consumer.subscribe([self.settings.events_topic])
+        self.consumer.subscribe([self.settings.events_topic], on_assign=self._on_assign)
         last_message = time.monotonic()
         try:
             while self._running:
@@ -94,7 +98,7 @@ class WindowedConsumer:
                 except InvalidEvent as exc:
                     self._dead_letter(msg.value(), str(exc))
                 else:
-                    if self.aggregator.add(event):
+                    if self.aggregator.add(event, msg.partition()):
                         self.metrics["valid"] += 1
 
                 if self.metrics["consumed"] % 500 == 0:

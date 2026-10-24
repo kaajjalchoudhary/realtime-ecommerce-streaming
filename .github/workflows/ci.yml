@@ -37,7 +37,7 @@ jobs:
       - name: Consume and aggregate
         run: make consume
       - name: Check results
-        run: PYTHONPATH=src python -m streaming.report --limit 20 --min-windows 10
+        run: PYTHONPATH=src python -m streaming.report --limit 20 --min-windows 10 --min-events 2800
       - name: Logs on failure
         if: failure()
         run: docker compose logs

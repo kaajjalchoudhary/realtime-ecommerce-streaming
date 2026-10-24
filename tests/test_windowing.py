@@ -84,3 +84,28 @@ def test_pop_all_flushes_in_order():
 def test_invalid_window_size():
     with pytest.raises(ValueError):
         TumblingWindowAggregator(0)
+
+
+def test_watermark_is_minimum_across_partitions():
+    agg = TumblingWindowAggregator(60, allowed_lateness_seconds=0)
+    agg.set_partitions([0, 1])
+    agg.add(ev(10), partition=0)
+    agg.add(ev(500), partition=0)  # partition 0 is read far ahead
+    assert agg.watermark is None  # partition 1 has not reported yet
+    assert agg.pop_closed() == []
+
+    assert agg.add(ev(20), partition=1)  # not late: partition 1 is still at t=20
+    agg.add(ev(130), partition=1)
+    closed = agg.pop_closed()  # watermark = min(500, 130) = 130
+    assert [w.window_start for w in closed] == [T0]
+    assert closed[0].page_views == 2
+    assert agg.late_events == 0
+
+
+def test_rebalance_drops_revoked_partitions():
+    agg = TumblingWindowAggregator(60, 0)
+    agg.set_partitions([0, 1])
+    agg.add(ev(10), partition=0)
+    agg.add(ev(200), partition=1)
+    agg.set_partitions([1])
+    assert agg.watermark == T0 + timedelta(seconds=200)
