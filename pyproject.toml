@@ -1,0 +1,21 @@
+[project]
+name = "realtime-ecommerce-streaming"
+version = "0.1.0"
+description = "Kafka streaming pipeline with event-time windows, dead-letter queue and PostgreSQL sink"
+requires-python = ">=3.9"
+dependencies = ["confluent-kafka>=2.4", "psycopg[binary]>=3.1"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["streaming"]
