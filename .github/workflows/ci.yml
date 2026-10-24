@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Lint
+        run: ruff check src tests
+      - name: Unit tests
+        run: pytest -v
+
+  integration:
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Start Kafka and PostgreSQL
+        run: make up
+      - name: Produce events
+        run: make produce
+      - name: Consume and aggregate
+        run: make consume
+      - name: Check results
+        run: PYTHONPATH=src python -m streaming.report --limit 20 --min-windows 10
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
