@@ -106,3 +106,7 @@ Everything is configurable with environment variables (`KAFKA_BOOTSTRAP_SERVERS`
   Streaming solve this with checkpointed state stores.
 - Add a schema registry (Avro/Protobuf) instead of JSON validation.
 - Expose consumer lag and DLQ rate as Prometheus metrics.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
